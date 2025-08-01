@@ -1,13 +1,14 @@
 fastapi
 uvicorn
-aiohttp
 python-dotenv
 azure-search-documents
 azure-identity
 openai
 PyPDF2
-python-jose
 numpy
 pydantic
 requests
 gunicorn
+transformers
+sentence-transformers
+torch --index-url https://download.pytorch.org/whl/cpu
