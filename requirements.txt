@@ -7,5 +7,7 @@ azure-identity
 openai
 PyPDF2
 python-jose
+numpy
+pydantic
 requests
 gunicorn
