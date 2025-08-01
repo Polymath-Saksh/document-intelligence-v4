@@ -28,10 +28,15 @@ def ask_llm(question: str, context: str) -> str:
     )
     return response.choices[0].message.content
 
-def get_embedding(text: str, model: str = "text-embedding-ada-002") -> list:
+def get_embedding(texts, model: str = "text-embedding-ada-002") -> list:
+    """
+    Accepts a string or a list of strings. Returns a list of embeddings (one per input).
+    """
     client = get_openai_client()
+    if isinstance(texts, str):
+        texts = [texts]
     response = client.embeddings.create(
-        input=text,
+        input=texts,
         model=model
     )
-    return response.data[0].embedding
+    return [item.embedding for item in response.data]

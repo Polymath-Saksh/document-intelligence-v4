@@ -9,5 +9,3 @@ numpy
 pydantic
 requests
 gunicorn
-transformers
-torch --index-url https://download.pytorch.org/whl/cpu

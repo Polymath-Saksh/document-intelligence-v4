@@ -17,8 +17,7 @@ logger = logging.getLogger("rag-app")
 from app.chunk_and_embed import download_pdf, extract_text_from_pdf
 from app.openai_utils import ask_llm
 import numpy as np
-from transformers import AutoTokenizer, AutoModel #type: ignore
-import torch
+from app.openai_utils import get_embedding
 
 def chunk_text_overlap(text, chunk_size=500, overlap=100):
     words = text.split()
@@ -31,21 +30,15 @@ def chunk_text_overlap(text, chunk_size=500, overlap=100):
     return chunks
 
 
-# Load transformer once at startup
-tokenizer = AutoTokenizer.from_pretrained("sentence-transformers/paraphrase-MiniLM-L3-v2")
-model = AutoModel.from_pretrained("sentence-transformers/paraphrase-MiniLM-L3-v2")
 
+# Use Azure OpenAI ADA embeddings (batched)
 def embed(texts):
-    encoded_input = tokenizer(texts, padding=True, truncation=True, return_tensors='pt')
-    with torch.no_grad():
-        model_output = model(**encoded_input)
-    token_embeddings = model_output[0]
-    input_mask_expanded = encoded_input['attention_mask'].unsqueeze(-1).expand(token_embeddings.size()).float()
-    return torch.sum(token_embeddings * input_mask_expanded, 1) / torch.clamp(input_mask_expanded.sum(1), min=1e-9)
+    return get_embedding(texts)
 
 def get_top_chunks(question, chunks, chunk_embeds, top_k=1):
-    question_embed = embed([question]).cpu().numpy()[0]
-    similarities = np.dot(chunk_embeds, question_embed) / (np.linalg.norm(chunk_embeds, axis=1) * np.linalg.norm(question_embed) + 1e-9)
+    question_embed = embed([question])[0]
+    chunk_embeds_np = np.array(chunk_embeds)
+    similarities = np.dot(chunk_embeds_np, question_embed) / (np.linalg.norm(chunk_embeds_np, axis=1) * np.linalg.norm(question_embed) + 1e-9)
     top_indices = np.argsort(similarities)[-top_k:][::-1]
     return [chunks[i] for i in top_indices]
 app = FastAPI(title="Doc QA API - V4", description="API for document question answering using LLMs/embeddings.", root_path="/api/v1")
@@ -96,12 +89,11 @@ async def run_query(request: QueryRequest, _: HTTPAuthorizationCredentials = Dep
     logger.info(f"Chunking took {t3-t2:.2f} seconds")
 
 
-    # Step 3: Precompute chunk embeddings once
 
-    # Timing: Embedding
+    # Step 3: Precompute chunk embeddings once
     t4 = time.time()
-    logger.info("Embedding all chunks once for semantic search")
-    chunk_embeds = embed(chunks).cpu().numpy()
+    logger.info("Embedding all chunks once for semantic search using Azure OpenAI ADA embeddings")
+    chunk_embeds = embed(chunks)
     t5 = time.time()
     logger.info(f"Chunk embedding took {t5-t4:.2f} seconds")
 
