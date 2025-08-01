@@ -48,7 +48,7 @@ def get_top_chunks(question, chunks, chunk_embeds, top_k=1):
     similarities = np.dot(chunk_embeds, question_embed) / (np.linalg.norm(chunk_embeds, axis=1) * np.linalg.norm(question_embed) + 1e-9)
     top_indices = np.argsort(similarities)[-top_k:][::-1]
     return [chunks[i] for i in top_indices]
-app = FastAPI()
+app = FastAPI(title="Doc QA API - V4", description="API for document question answering using LLMs/embeddings.", root_path="/api/v1")
 security = HTTPBearer()
 BEARER_TOKEN = os.getenv("BEARER_TOKEN", "your-secure-token")
 
@@ -63,7 +63,7 @@ async def verify_token(credentials: HTTPAuthorizationCredentials = Depends(secur
     if credentials.scheme != "Bearer" or credentials.credentials != BEARER_TOKEN:
         raise HTTPException(status_code=401, detail="Invalid or missing token")
 
-@app.post("/api/v1/hackrx/run/", response_model=QueryResponse)
+@app.post("/hackrx/run/", response_model=QueryResponse)
 async def run_query(request: QueryRequest, _: HTTPAuthorizationCredentials = Depends(verify_token)):
     # Step 1: Download and extract text from PDF
     pdf_url = request.documents
