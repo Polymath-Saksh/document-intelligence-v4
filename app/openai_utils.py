@@ -13,7 +13,7 @@ def get_openai_client():
 
 def ask_llm(question: str, context: str) -> str:
     client = get_openai_client()
-    deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4.1-mini")
+    deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4.1-nano")
     response = client.chat.completions.create(
         messages=[
             {"role": "system", "content": "You are an assistant which helps users find information from documents. Keep the answers limited to 1-2 sentences, only based on the provided context."},
