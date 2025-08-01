@@ -128,3 +128,13 @@ async def run_query(request: QueryRequest, _: HTTPAuthorizationCredentials = Dep
 
     logger.info(f"Returning {len(answers)} answers to client")
     return QueryResponse(answers=answers)
+
+# Root route for homepage
+@app.get("/")
+def homepage():
+    return {"message": "Welcome to Doc QA API. Visit /docs for API documentation."}
+
+# Keep /test for health check
+@app.get("/test")
+def root():
+    return {"message": "Doc QA API is running."}
