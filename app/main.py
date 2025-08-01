@@ -32,8 +32,8 @@ def chunk_text_overlap(text, chunk_size=500, overlap=100):
 
 
 # Load transformer once at startup
-tokenizer = AutoTokenizer.from_pretrained("sentence-transformers/all-MiniLM-L6-v2")
-model = AutoModel.from_pretrained("sentence-transformers/all-MiniLM-L6-v2")
+tokenizer = AutoTokenizer.from_pretrained("sentence-transformers/paraphrase-MiniLM-L3-v2")
+model = AutoModel.from_pretrained("sentence-transformers/paraphrase-MiniLM-L3-v2")
 
 def embed(texts):
     encoded_input = tokenizer(texts, padding=True, truncation=True, return_tensors='pt')
