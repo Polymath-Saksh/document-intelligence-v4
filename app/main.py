@@ -55,7 +55,8 @@ class QueryResponse(BaseModel):
 async def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)):
     if credentials.scheme != "Bearer" or credentials.credentials != BEARER_TOKEN:
         raise HTTPException(status_code=401, detail="Invalid or missing token")
-
+    
+@app.post("/hackrx/run", response_model=QueryResponse)
 @app.post("/hackrx/run/", response_model=QueryResponse)
 async def run_query(request: QueryRequest, _: HTTPAuthorizationCredentials = Depends(verify_token)):
     # Step 1: Download and extract text from PDF
