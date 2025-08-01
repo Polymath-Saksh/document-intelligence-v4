@@ -17,7 +17,7 @@ logger = logging.getLogger("rag-app")
 from app.chunk_and_embed import download_pdf, extract_text_from_pdf
 from app.openai_utils import ask_llm
 import numpy as np
-from transformers import AutoTokenizer, AutoModel
+from transformers import AutoTokenizer, AutoModel #type: ignore
 import torch
 
 def chunk_text_overlap(text, chunk_size=500, overlap=100):
