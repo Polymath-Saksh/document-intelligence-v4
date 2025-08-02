@@ -36,26 +36,30 @@ index = pc.Index(host=PINECONE_INDEX_HOST)
 
 # Upsert all chunk embeddings to Pinecone and store chunk text as metadata (new SDK)
 # Upsert all chunk texts to Pinecone (let Pinecone handle embedding)
-def upsert_chunks_to_pinecone(chunks):
-    embeddings = get_embedding(chunks)
-    records = []
+import gc
+def upsert_chunks_to_pinecone(chunks, batch_size=50):
     ids = []
-    for i, (chunk, embedding) in enumerate(zip(chunks, embeddings)):
-        chunk_id = f"chunk-{i}"
-        logger.info(f"Upserting chunk {i}: {chunk[:120].replace('\n', ' ')} ...")
-        records.append({
-            "id": chunk_id,
-            "values": embedding,
-            "metadata": {
-                "chunk_text": chunk,
-            }
-        })
-        ids.append(chunk_id)
-    for i in range(0, len(records), 100):
+    for batch_start in range(0, len(chunks), batch_size):
+        batch_chunks = chunks[batch_start:batch_start+batch_size]
+        embeddings = get_embedding(batch_chunks)
+        records = []
+        for i, (chunk, embedding) in enumerate(zip(batch_chunks, embeddings)):
+            chunk_id = f"chunk-{batch_start + i}"
+            logger.info(f"Upserting chunk {batch_start + i}: {chunk[:120].replace('\n', ' ')} ...")
+            records.append({
+                "id": chunk_id,
+                "values": embedding,
+                "metadata": {
+                    "chunk_text": chunk,
+                }
+            })
+            ids.append(chunk_id)
         index.upsert(
-            vectors=records[i:i+100],
+            vectors=records,
             namespace=PINECONE_NAMESPACE
         )
+        del records, embeddings, batch_chunks
+        gc.collect()
     return ids
 
 
@@ -168,44 +172,48 @@ async def run_query(request: QueryRequest, background_tasks: BackgroundTasks, _:
     # For each question, find relevant chunks and generate answer
     import asyncio
 
-    async def process_question(idx, question):
-        tq_start = time.time()
-        logger.info(f"Processing question {idx+1}/{len(request.questions)}: {question}")
-        # Run blocking get_top_chunks in a thread pool
-        loop = asyncio.get_running_loop()
-        top_chunks = await loop.run_in_executor(None, get_top_chunks, question, 8)
-        logger.info(f"Selected top {len(top_chunks)} relevant chunks for question")
-        context = "\n".join(top_chunks)
-        concise_prompt = (
-            "Answer concisely and only with facts from the context. "
-            "If the answer is not present in the context, reply: 'Not found in document.'\n"
-            f"Question: {question}\nContext: {context}"
-        )
-        try:
-            # Run blocking ask_llm in a thread pool
-            answer = await loop.run_in_executor(None, ask_llm, question, concise_prompt)
-            logger.info(f"LLM answer generated successfully")
-            # Fallback: if answer is empty or generic, try with more context
-            if not answer or answer.strip().lower() in ["not found", "not found in document", "", "no answer"]:
-                logger.info("LLM returned empty or generic answer, retrying with more context chunks if available.")
-                more_chunks = await loop.run_in_executor(None, get_top_chunks, question, 16)
-                more_context = "\n".join(more_chunks)
-                retry_prompt = (
-                    "Answer concisely and only with facts from the context. "
-                    "If the answer is not present in the context, reply: 'Not found in document.'\n"
-                    f"Question: {question}\nContext: {more_context}"
-                )
-                answer = await loop.run_in_executor(None, ask_llm, question, retry_prompt)
-        except Exception as e:
-            logger.error(f"Error generating answer: {e}")
-            answer = f"Error generating answer: {e}"
-        if not answer or answer.strip() == "":
-            answer = "Not found in document."
-        tq_end = time.time()
-        logger.info(f"Total time for question {idx+1}: {tq_end-tq_start:.2f} seconds")
-        return answer
+    # Limit concurrency for question processing
+    semaphore = asyncio.Semaphore(10)  # Adjust concurrency as needed
 
-    # Run all questions in parallel
+    async def process_question(idx, question):
+        async with semaphore:
+            tq_start = time.time()
+            logger.info(f"Processing question {idx+1}/{len(request.questions)}: {question}")
+            # Run blocking get_top_chunks in a thread pool
+            loop = asyncio.get_running_loop()
+            top_chunks = await loop.run_in_executor(None, get_top_chunks, question, 8)
+            logger.info(f"Selected top {len(top_chunks)} relevant chunks for question")
+            context = "\n".join(top_chunks)
+            concise_prompt = (
+                "Answer concisely and only with facts from the context. "
+                "If the answer is not present in the context, reply: 'Not found in document.'\n"
+                f"Question: {question}\nContext: {context}"
+            )
+            try:
+                # Run blocking ask_llm in a thread pool
+                answer = await loop.run_in_executor(None, ask_llm, question, concise_prompt)
+                logger.info(f"LLM answer generated successfully")
+                # Fallback: if answer is empty or generic, try with more context
+                if not answer or answer.strip().lower() in ["not found", "not found in document", "", "no answer"]:
+                    logger.info("LLM returned empty or generic answer, retrying with more context chunks if available.")
+                    more_chunks = await loop.run_in_executor(None, get_top_chunks, question, 16)
+                    more_context = "\n".join(more_chunks)
+                    retry_prompt = (
+                        "Answer concisely and only with facts from the context. "
+                        "If the answer is not present in the context, reply: 'Not found in document.'\n"
+                        f"Question: {question}\nContext: {more_context}"
+                    )
+                    answer = await loop.run_in_executor(None, ask_llm, question, retry_prompt)
+            except Exception as e:
+                logger.error(f"Error generating answer: {e}")
+                answer = f"Error generating answer: {e}"
+            if not answer or answer.strip() == "":
+                answer = "Not found in document."
+            tq_end = time.time()
+            logger.info(f"Total time for question {idx+1}: {tq_end-tq_start:.2f} seconds")
+            return answer
+
+    # Run all questions in parallel, but limit concurrency
     answers = await asyncio.gather(*[process_question(idx, q) for idx, q in enumerate(request.questions)])
     logger.info(f"Returning {len(answers)} answers to client")
     # Cleanup: delete the upserted chunks from Pinecone in the background

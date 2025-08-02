@@ -43,11 +43,26 @@ def extract_text_from_eml(eml_path):
 # Main function to extract text based on file type
 def extract_text_from_file(file_path):
     mime, _ = mimetypes.guess_type(file_path)
-    if mime == 'application/pdf':
-        return extract_text_from_pdf(file_path)
-    elif mime == 'application/vnd.openxmlformats-officedocument.wordprocessingml.document':
-        return extract_text_from_docx(file_path)
-    elif mime == 'message/rfc822' or file_path.lower().endswith('.eml'):
-        return extract_text_from_eml(file_path)
-    else:
-        raise ValueError(f"Unsupported file type: {mime} for {file_path}")
+    # Try by MIME type first
+    try:
+        if mime == 'application/pdf' or file_path.lower().endswith('.pdf'):
+            return extract_text_from_pdf(file_path)
+        elif mime == 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' or file_path.lower().endswith('.docx'):
+            return extract_text_from_docx(file_path)
+        elif mime == 'message/rfc822' or file_path.lower().endswith('.eml'):
+            return extract_text_from_eml(file_path)
+    except Exception as e:
+        pass  # Fallback to trying all formats below
+
+    # Fallback: try all supported formats in order
+    errors = []
+    for extractor, desc in [
+        (extract_text_from_pdf, 'PDF'),
+        (extract_text_from_docx, 'DOCX'),
+        (extract_text_from_eml, 'EML'),
+    ]:
+        try:
+            return extractor(file_path)
+        except Exception as e:
+            errors.append(f"{desc} extraction failed: {e}")
+    raise ValueError(f"Unsupported file type: {mime} for {file_path}. Tried all extractors. Errors: {' | '.join(errors)}")
