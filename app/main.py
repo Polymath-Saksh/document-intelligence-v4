@@ -1,5 +1,5 @@
 # type: ignore
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import FastAPI, HTTPException, Depends, BackgroundTasks
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
 from typing import List
@@ -7,7 +7,8 @@ import os
 import time
 import logging
 from dotenv import load_dotenv
-from app.chunk_and_embed import download_pdf, extract_text_from_pdf
+from app.chunk_and_embed import download_pdf
+from app.file_utils import download_file, extract_text_from_file
 from app.openai_utils import ask_llm, get_embedding
 from pinecone import Pinecone 
 from langchain.text_splitter import RecursiveCharacterTextSplitter 
@@ -36,25 +37,26 @@ index = pc.Index(host=PINECONE_INDEX_HOST)
 # Upsert all chunk embeddings to Pinecone and store chunk text as metadata (new SDK)
 # Upsert all chunk texts to Pinecone (let Pinecone handle embedding)
 def upsert_chunks_to_pinecone(chunks):
-    # Batch embed all chunks at once
     embeddings = get_embedding(chunks)
     records = []
+    ids = []
     for i, (chunk, embedding) in enumerate(zip(chunks, embeddings)):
+        chunk_id = f"chunk-{i}"
         logger.info(f"Upserting chunk {i}: {chunk[:120].replace('\n', ' ')} ...")
         records.append({
-            "id": f"chunk-{i}",
+            "id": chunk_id,
             "values": embedding,
             "metadata": {
                 "chunk_text": chunk,
-                # add more metadata fields here if needed
             }
         })
-    # Pinecone upsert in batches (max 100 per batch)
+        ids.append(chunk_id)
     for i in range(0, len(records), 100):
         index.upsert(
             vectors=records[i:i+100],
             namespace=PINECONE_NAMESPACE
         )
+    return ids
 
 
 # Query Pinecone for top-k similar chunks (new SDK, with integrated embedding)
@@ -123,28 +125,25 @@ async def verify_token(credentials: HTTPAuthorizationCredentials = Depends(secur
     
 @app.post("/hackrx/run", response_model=QueryResponse)
 @app.post("/hackrx/run/", response_model=QueryResponse)
-async def run_query(request: QueryRequest, _: HTTPAuthorizationCredentials = Depends(verify_token)):
-    # Step 1: Download and extract text from PDF
-    pdf_url = request.documents
-    local_pdf = "temp.pdf"
+async def run_query(request: QueryRequest, background_tasks: BackgroundTasks, _: HTTPAuthorizationCredentials = Depends(verify_token)):
 
-
-    # Timing: PDF download and extraction
+    # Step 1: Download and extract text from file (PDF, DOCX, EML)
+    file_url = request.documents
+    local_file = "temp_downloaded_file"
     t0 = time.time()
     try:
-        logger.info(f"Downloading PDF from {pdf_url}")
-        download_pdf(pdf_url, local_pdf)
-        logger.info(f"Extracting text from PDF {local_pdf}")
-        text = extract_text_from_pdf(local_pdf)
-        logger.info(f"Extracted {len(text)} characters from PDF")
+        logger.info(f"Downloading file from {file_url}")
+        download_file(file_url, local_file)
+        logger.info(f"Extracting text from {local_file}")
+        text = extract_text_from_file(local_file)
+        logger.info(f"Extracted {len(text)} characters from file")
     except Exception as e:
-        logger.error(f"PDF extraction failed: {e}")
-        raise HTTPException(status_code=400, detail=f"PDF extraction failed: {e}")
+        logger.error(f"File extraction failed: {e}")
+        raise HTTPException(status_code=400, detail=f"File extraction failed: {e}")
     t1 = time.time()
-    logger.info(f"PDF download and extraction took {t1-t0:.2f} seconds")
+    logger.info(f"File download and extraction took {t1-t0:.2f} seconds")
 
     # Step 2: Chunk the text
-
 
     # Timing: Chunking
     t2 = time.time()
@@ -162,7 +161,7 @@ async def run_query(request: QueryRequest, _: HTTPAuthorizationCredentials = Dep
     # Step 3: Upsert all chunk texts to Pinecone (embedding handled by Pinecone)
     t4 = time.time()
     logger.info("Upserting chunk texts to Pinecone index (embedding handled by Pinecone)")
-    upsert_chunks_to_pinecone(chunks)
+    chunk_ids = upsert_chunks_to_pinecone(chunks)
     t5 = time.time()
     logger.info(f"Pinecone upsert took {t5-t4:.2f} seconds")
 
@@ -209,6 +208,16 @@ async def run_query(request: QueryRequest, _: HTTPAuthorizationCredentials = Dep
     # Run all questions in parallel
     answers = await asyncio.gather(*[process_question(idx, q) for idx, q in enumerate(request.questions)])
     logger.info(f"Returning {len(answers)} answers to client")
+    # Cleanup: delete the upserted chunks from Pinecone in the background
+    def cleanup_chunks(chunk_ids):
+        try:
+            if chunk_ids:
+                logger.info(f"Cleaning up {len(chunk_ids)} chunks from Pinecone index.")
+                index.delete(ids=chunk_ids, namespace=PINECONE_NAMESPACE)
+        except Exception as e:
+            logger.warning(f"Cleanup failed: {e}")
+
+    background_tasks.add_task(cleanup_chunks, chunk_ids)
     return QueryResponse(answers=answers)
 
 # Root route for homepage
