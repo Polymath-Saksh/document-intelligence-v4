@@ -9,3 +9,5 @@ numpy
 pydantic
 requests
 gunicorn
+pinecone
+langchain
