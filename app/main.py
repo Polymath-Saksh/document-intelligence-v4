@@ -9,8 +9,8 @@ import logging
 from dotenv import load_dotenv
 from app.chunk_and_embed import download_pdf, extract_text_from_pdf
 from app.openai_utils import ask_llm, get_embedding
-from pinecone import Pinecone #type: ignore
-from langchain.text_splitter import RecursiveCharacterTextSplitter #type: ignore
+from pinecone import Pinecone 
+from langchain.text_splitter import RecursiveCharacterTextSplitter 
 
 load_dotenv()
 
@@ -58,7 +58,7 @@ def upsert_chunks_to_pinecone(chunks):
 
 
 # Query Pinecone for top-k similar chunks (new SDK, with integrated embedding)
-def get_top_chunks(question, top_k=5):
+def get_top_chunks(question, top_k=10):
     # Hybrid search: combine dense vector and keyword search
     query_embedding = get_embedding(question)
     if isinstance(query_embedding, list) and len(query_embedding) == 1:
