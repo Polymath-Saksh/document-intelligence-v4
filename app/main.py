@@ -130,13 +130,9 @@ async def run_query(request: QueryRequest, background_tasks: BackgroundTasks, _:
     all_contact_info = extract_contact_details(text)
     all_contact_hint = ""
     if any(all_contact_info.values()):
-        all_contact_hint = "\nAll contact details in document: "
-        if all_contact_info["emails"]:
-            all_contact_hint += f"Emails: {', '.join(all_contact_info['emails'])}. "
-        if all_contact_info["phones"]:
-            all_contact_hint += f"Toll-free: {', '.join(all_contact_info['phones'])}. "
-        if all_contact_info["addresses"]:
-            all_contact_hint += f"Addresses: {', '.join(all_contact_info['addresses'])}. "
+        all_contact_hint = "\nEmails: " + ", ".join(all_contact_info["emails"]) if all_contact_info["emails"] else ""
+        all_contact_hint += "\nToll-free: " + ", ".join(all_contact_info["phones"]) if all_contact_info["phones"] else ""
+        all_contact_hint += "\nAddresses: " + ", ".join(all_contact_info["addresses"]) if all_contact_info["addresses"] else ""
     
     # Step 2: Chunk the text and upsert to Pinecone
     t2 = time.time()
@@ -164,10 +160,17 @@ async def run_query(request: QueryRequest, background_tasks: BackgroundTasks, _:
             loop = asyncio.get_running_loop()
             top_chunks = await loop.run_in_executor(None, get_top_chunks, question, 20)
             logger.info(f"Selected top {len(top_chunks)} relevant chunks for question")
-            context = "\n".join(top_chunks)
+            
+            prompt_context_parts = []
+            if all_contact_hint:
+                prompt_context_parts.append(f"CONTACTS AND ADDRESSES IN THE DOCUMENT: {all_contact_hint}")
+            
+            prompt_context_parts.append("\n\nRELEVANT DOCUMENT CHUNKS:\n" + "\n".join(top_chunks))
+            
+            final_context = "\n".join(prompt_context_parts)
             
             prompt = (
-                f"Question: {question}\nContext: {context}{all_contact_hint}"
+                f"Question: {question}\nContext: {final_context}"
             )
             
             try:

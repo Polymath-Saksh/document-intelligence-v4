@@ -20,7 +20,7 @@ def ask_llm(prompt: str) -> str:
     deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4.1-nano")
     response = client.chat.completions.create(
         messages=[
-            {"role": "system", "content": "You are a helpful assistant that provides accurate and factual answers based on the provided document. If a question contains multiple parts, answer each part separately. If the answer is not present in the context, respond with 'Not found in document.'"},
+            {"role": "system", "content": "You are a helpful assistant that provides accurate and factual answers based on the provided document. If a question contains multiple parts, answer each part separately. Keep your answers concise and to the point, limiting them to one or two sentences per part. If the answer is not present in the context, respond with 'Not found in document.'"},
             {"role": "user", "content": prompt}
         ],
         max_completion_tokens=800,
