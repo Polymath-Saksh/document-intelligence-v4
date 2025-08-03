@@ -132,8 +132,15 @@ async def verify_token(credentials: HTTPAuthorizationCredentials = Depends(secur
 async def run_query(request: QueryRequest, background_tasks: BackgroundTasks, _: HTTPAuthorizationCredentials = Depends(verify_token)):
 
     # Step 1: Download and extract text from file (PDF, DOCX, EML)
+    import urllib.parse
     file_url = request.documents
-    local_file = "temp_downloaded_file"
+    # Try to get extension from URL
+    parsed_url = urllib.parse.urlparse(file_url)
+    file_name_from_url = os.path.basename(parsed_url.path)
+    _, ext = os.path.splitext(file_name_from_url)
+    if not ext:
+        ext = ''
+    local_file = f"temp_downloaded_file{ext}"
     t0 = time.time()
     try:
         logger.info(f"Downloading file from {file_url}")
@@ -156,11 +163,6 @@ async def run_query(request: QueryRequest, background_tasks: BackgroundTasks, _:
     logger.info(f"Generated {len(chunks)} overlapping chunks from document")
     t3 = time.time()
     logger.info(f"Chunking took {t3-t2:.2f} seconds")
-
-
-
-
-
 
     # Step 3: Upsert all chunk texts to Pinecone (embedding handled by Pinecone)
     t4 = time.time()
