@@ -2,6 +2,7 @@ import os
 from openai import AzureOpenAI #type: ignore
 
 def get_openai_client():
+    """Initializes and returns an Azure OpenAI client."""
     api_key = os.getenv("AZURE_OPENAI_API_KEY", "<your-openai-api-key>")
     endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
     api_version = os.getenv("AZURE_OPENAI_API_VERSION", "2024-12-01-preview")
@@ -11,13 +12,16 @@ def get_openai_client():
         azure_endpoint=endpoint
     )
 
-def ask_llm(question: str, context: str) -> str:
+def ask_llm(prompt: str) -> str:
+    """
+    Sends a pre-formatted prompt to the LLM and returns a concise, factual answer.
+    """
     client = get_openai_client()
     deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4.1-nano")
     response = client.chat.completions.create(
         messages=[
-            {"role": "system", "content": "You are an assistant which helps users find information from documents. Keep the answers limited to 1-2 sentences, only based on the provided context."},
-            {"role": "user", "content": f"{question}\nContext: {context}"}
+            {"role": "system", "content": "You are a helpful assistant that provides accurate and factual answers based on the provided document. If a question contains multiple parts, answer each part separately. If the answer is not present in the context, respond with 'Not found in document.'"},
+            {"role": "user", "content": prompt}
         ],
         max_completion_tokens=800,
         temperature=1.0,
