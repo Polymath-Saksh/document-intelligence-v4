@@ -8,7 +8,7 @@ import time
 import logging
 from dotenv import load_dotenv
 from app.chunk_and_embed import download_pdf
-from app.file_utils import download_file, extract_text_from_file
+from app.file_utils import download_file, async_download_file, extract_text_from_file
 from app.openai_utils import ask_llm, get_embedding
 from pinecone import Pinecone 
 from langchain.text_splitter import RecursiveCharacterTextSplitter 
@@ -37,29 +37,44 @@ index = pc.Index(host=PINECONE_INDEX_HOST)
 # Upsert all chunk embeddings to Pinecone and store chunk text as metadata (new SDK)
 # Upsert all chunk texts to Pinecone (let Pinecone handle embedding)
 import gc
-def upsert_chunks_to_pinecone(chunks, batch_size=50):
+def upsert_chunks_to_pinecone(chunks, batch_size=1000):
+    """
+    Upsert chunks to Pinecone in batches of up to 1000, using parallel upserts for throughput.
+    """
+    import concurrent.futures
     ids = []
-    for batch_start in range(0, len(chunks), batch_size):
-        batch_chunks = chunks[batch_start:batch_start+batch_size]
-        embeddings = get_embedding(batch_chunks)
-        records = []
+    upsert_futures = []
+    def upsert_batch(batch_start, batch_chunks, embeddings):
+        local_records = []
+        local_ids = []
         for i, (chunk, embedding) in enumerate(zip(batch_chunks, embeddings)):
             chunk_id = f"chunk-{batch_start + i}"
             logger.info(f"Upserting chunk {batch_start + i}: {chunk[:120].replace('\n', ' ')} ...")
-            records.append({
+            local_records.append({
                 "id": chunk_id,
                 "values": embedding,
                 "metadata": {
                     "chunk_text": chunk,
                 }
             })
-            ids.append(chunk_id)
+            local_ids.append(chunk_id)
+        # Pinecone recommends up to 1000 vectors per upsert
         index.upsert(
-            vectors=records,
+            vectors=local_records,
             namespace=PINECONE_NAMESPACE
         )
-        del records, embeddings, batch_chunks
-        gc.collect()
+        return local_ids
+
+    # Use a thread pool for parallel upserts
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
+        for batch_start in range(0, len(chunks), batch_size):
+            batch_chunks = chunks[batch_start:batch_start+batch_size]
+            embeddings = get_embedding(batch_chunks)
+            future = executor.submit(upsert_batch, batch_start, batch_chunks, embeddings)
+            upsert_futures.append(future)
+        for future in upsert_futures:
+            ids.extend(future.result())
+    gc.collect()
     return ids
 
 
@@ -143,10 +158,12 @@ async def run_query(request: QueryRequest, background_tasks: BackgroundTasks, _:
     local_file = f"temp_downloaded_file{ext}"
     t0 = time.time()
     try:
-        logger.info(f"Downloading file from {file_url}")
-        download_file(file_url, local_file)
-        logger.info(f"Extracting text from {local_file}")
-        text = extract_text_from_file(local_file)
+        logger.info(f"Downloading file from {file_url} (async)")
+        await async_download_file(file_url, local_file)
+        logger.info(f"Extracting text from {local_file} (threadpool)")
+        import asyncio
+        loop = asyncio.get_running_loop()
+        text = await loop.run_in_executor(None, extract_text_from_file, local_file)
         logger.info(f"Extracted {len(text)} characters from file")
     except Exception as e:
         logger.error(f"File extraction failed: {e}")
@@ -174,8 +191,9 @@ async def run_query(request: QueryRequest, background_tasks: BackgroundTasks, _:
     # For each question, find relevant chunks and generate answer
     import asyncio
 
-    # Limit concurrency for question processing
-    semaphore = asyncio.Semaphore(10)  # Adjust concurrency as needed
+
+    # Limit concurrency for LLM calls to avoid API rate limits (OpenAI/Azure best practice: 5-10)
+    semaphore = asyncio.Semaphore(8)
 
     async def process_question(idx, question):
         async with semaphore:

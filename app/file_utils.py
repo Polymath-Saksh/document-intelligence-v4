@@ -1,6 +1,8 @@
 import os
 import mimetypes
 import requests
+import httpx
+import asyncio
 import PyPDF2
 from docx import Document
 import tempfile
@@ -8,10 +10,21 @@ from email import policy
 from email.parser import BytesParser
 
 # Download any file
+
 def download_file(url, filename):
+    """Synchronous file download (legacy)"""
     response = requests.get(url)
     with open(filename, 'wb') as f:
         f.write(response.content)
+
+async def async_download_file(url, filename):
+    """Async file download using httpx.AsyncClient"""
+    async with httpx.AsyncClient(timeout=60) as client:
+        async with client.stream("GET", url) as response:
+            response.raise_for_status()
+            with open(filename, 'wb') as f:
+                async for chunk in response.aiter_bytes():
+                    f.write(chunk)
 
 # Extract text from PDF
 def extract_text_from_pdf(pdf_path):

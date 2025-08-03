@@ -12,3 +12,4 @@ requests
 gunicorn
 pinecone
 langchain
+uvloop
