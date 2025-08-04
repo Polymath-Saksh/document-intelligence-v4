@@ -8,7 +8,7 @@ import subprocess
 # Load spaCy English model with Azure-friendly fallback
 try:
     nlp = spacy.load("en_core_web_sm")
-except OSError:
+except (OSError, ImportError, IOError):
     subprocess.run(["python", "-m", "spacy", "download", "en_core_web_sm"], check=True)
     nlp = spacy.load("en_core_web_sm")
 
@@ -21,10 +21,27 @@ COMMON_PROCEDURES = [
     "knee surgery", "hip replacement", "appendectomy", "bypass surgery", "angioplasty",
     "cataract surgery", "hernia repair", "gallbladder removal", "hysterectomy", "prostate surgery",
     "bariatric surgery", "spinal fusion", "carpal tunnel release", "colonoscopy", "endoscopy",
+    "tonsillectomy", "adenoidectomy", "mastectomy", "lumpectomy", "thyroidectomy", "vasectomy",
+    "cesarean section", "laparoscopy", "arthroscopy", "pacemaker implantation", "stent placement",
+    "coronary angiography", "gastrectomy", "colectomy", "nephrectomy", "liver transplant",
+    "kidney transplant", "lung transplant", "heart transplant", "bone marrow transplant",
+    "skin graft", "cornea transplant", "retinal detachment repair", "vitrectomy", "glaucoma surgery",
+    "LASIK", "rhinoplasty", "septoplasty", "sinus surgery", "bunionectomy", "meniscectomy",
+    "rotator cuff repair", "ACL reconstruction", "shoulder replacement", "ankle fusion",
+    "spinal decompression", "laminectomy", "discectomy", "microdiscectomy", "vertebroplasty",
+    "kyphoplasty", "inguinal hernia repair", "femoral hernia repair", "umbilical hernia repair",
+    "ventral hernia repair", "hemorrhoidectomy", "fistulotomy", "anal fissure repair",
+    "gastroscopy", "sigmoidoscopy", "bronchoscopy", "cystoscopy", "ureteroscopy", "prostatectomy",
+    "orchiectomy", "oophorectomy", "salpingectomy", "tubal ligation", "myomectomy", "D&C",
+    "endometrial ablation", "abdominoplasty", "liposuction", "breast augmentation",
+    "breast reduction", "mohs surgery", "skin lesion excision", "mole removal", "circumcision",
+    "penile implant", "testicular surgery", "varicocelectomy", "hydrocelectomy", "thyroid ablation",
+    "parathyroidectomy", "adrenalectomy", "splenectomy", "pancreatectomy", "whipple procedure",
+    "gastrotomy", "tracheostomy", "laryngectomy", "esophagectomy", "bowel resection",
     "eye", "shoulder", "elbow", "wrist", "hand", "finger", "thumb", "ankle", "foot", "toe",
     "neck", "back", "spine", "chest", "abdomen", "pelvis", "lung", "heart", "liver", "kidney",
     "bladder", "pancreas", "spleen", "intestine", "stomach", "ear", "nose", "throat", "jaw",
-    "mouth", "teeth", "scalp", "skin", "breast", "testicle", "ovary", "uterus"
+    "mouth", "teeth", "scalp", "skin", "breast", "testicle", "ovary", "uterus",
 ]
 
 # Helper to extract procedure from text
