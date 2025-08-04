@@ -1,6 +1,9 @@
 # For query parsing
 spacy>=3.0.0
 # After installing, run: python -m spacy download en_core_web_sm
+spacy>=3.0.0
+# Install spaCy English model for Azure compatibility
+https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.7.1/en_core_web_sm-3.7.1-py3-none-any.whl
 python-docx
 fastapi
 uvicorn

@@ -1,10 +1,16 @@
+# type: ignore[import]
 import re
 from typing import Dict, Any
 import spacy
 from spacy.matcher import Matcher
+import subprocess
 
-# Load spaCy English model (make sure to install: python -m spacy download en_core_web_sm)
-nlp = spacy.load("en_core_web_sm")
+# Load spaCy English model with Azure-friendly fallback
+try:
+    nlp = spacy.load("en_core_web_sm")
+except OSError:
+    subprocess.run(["python", "-m", "spacy", "download", "en_core_web_sm"], check=True)
+    nlp = spacy.load("en_core_web_sm")
 
 # Patterns for extracting age, procedure, location, and policy duration
 AGE_PATTERN = re.compile(r"(\d{1,3})\s*[-]?(year|yr|y|yo|years|old|m|male|f|female)?", re.IGNORECASE)
@@ -13,7 +19,12 @@ DURATION_PATTERN = re.compile(r"(\d+)[-\s]*(month|year|day|week)[-\s]*(old|polic
 # List of common procedures (expand as needed)
 COMMON_PROCEDURES = [
     "knee surgery", "hip replacement", "appendectomy", "bypass surgery", "angioplasty",
-    "cataract surgery", "hernia repair", "gallbladder removal", "hysterectomy", "prostate surgery"
+    "cataract surgery", "hernia repair", "gallbladder removal", "hysterectomy", "prostate surgery",
+    "bariatric surgery", "spinal fusion", "carpal tunnel release", "colonoscopy", "endoscopy",
+    "eye", "shoulder", "elbow", "wrist", "hand", "finger", "thumb", "ankle", "foot", "toe",
+    "neck", "back", "spine", "chest", "abdomen", "pelvis", "lung", "heart", "liver", "kidney",
+    "bladder", "pancreas", "spleen", "intestine", "stomach", "ear", "nose", "throat", "jaw",
+    "mouth", "teeth", "scalp", "skin", "breast", "testicle", "ovary", "uterus"
 ]
 
 # Helper to extract procedure from text
