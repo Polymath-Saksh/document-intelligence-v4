@@ -1,24 +1,23 @@
-<!-- Badges -->
-<p align="center">
-   <a href="https://www.python.org/"><img src="https://img.shields.io/badge/Python-3.12+-blue?logo=python&logoColor=white" alt="Python"></a>
-   <a href="https://fastapi.tiangolo.com/"><img src="https://img.shields.io/badge/FastAPI-005571?logo=fastapi&logoColor=white" alt="FastAPI"></a>
-   <a href="https://azure.microsoft.com/en-us/products/ai-services/openai-service/"><img src="https://img.shields.io/badge/Azure%20OpenAI-0078D4?logo=microsoftazure&logoColor=white" alt="Azure OpenAI"></a>
-   <a href="https://www.pinecone.io/"><img src="https://img.shields.io/badge/Pinecone-45B8AC?logo=pinecone&logoColor=white" alt="Pinecone"></a>
-   <a href="https://azure.microsoft.com/en-us/products/storage/blobs/"><img src="https://img.shields.io/badge/Azure%20Blob%20Storage-0089D6?logo=microsoftazure&logoColor=white" alt="Azure Blob Storage"></a>
-   <a href="https://pydantic-docs.helpmanual.io/"><img src="https://img.shields.io/badge/Pydantic-008000?logo=pydantic&logoColor=white" alt="Pydantic"></a>
-   <a href="https://www.uvicorn.org/"><img src="https://img.shields.io/badge/Uvicorn-22C55E?logo=uvicorn&logoColor=white" alt="Uvicorn"></a>
-</p>
-
 # LLM-Powered Intelligent Query–Retrieval System (RAG)
+
+<a href="https://www.python.org/"><img src="https://img.shields.io/badge/Python-3.12+-blue?logo=python&logoColor=white" alt="Python"></a>
+<a href="https://fastapi.tiangolo.com/"><img src="https://img.shields.io/badge/FastAPI-005571?logo=fastapi&logoColor=white" alt="FastAPI"></a>
+<a href="https://azure.microsoft.com/en-us/products/ai-services/openai-service/"><img src="https://img.shields.io/badge/Azure%20OpenAI-0078D4?logo=microsoftazure&logoColor=white" alt="Azure OpenAI"></a>
+<a href="https://www.pinecone.io/"><img src="https://img.shields.io/badge/Pinecone-45B8AC?logo=pinecone&logoColor=white" alt="Pinecone"></a>
+<a href="https://azure.microsoft.com/en-us/products/storage/blobs/"><img src="https://img.shields.io/badge/Azure%20Blob%20Storage-0089D6?logo=microsoftazure&logoColor=white" alt="Azure Blob Storage"></a>
+<a href="https://pydantic-docs.helpmanual.io/"><img src="https://img.shields.io/badge/Pydantic-008000?logo=pydantic&logoColor=white" alt="Pydantic"></a>
+<a href="https://www.uvicorn.org/"><img src="https://img.shields.io/badge/Uvicorn-22C55E?logo=uvicorn&logoColor=white" alt="Uvicorn"></a>
+
+<a href="https://creativecommons.org/licenses/by-nc-sa/4.0/"><img src="https://img.shields.io/badge/License-CC%20BY--NC--SA%204.0-lightgrey.svg?logo=creativecommons&logoColor=white" alt="License: CC BY-NC-SA 4.0"></a>
 
 ## Overview
 
-This project is an intelligent Retrieval-Augmented Generation (RAG) system for answering domain-specific questions from large documents (insurance, legal, HR, compliance, etc.). It leverages Azure OpenAI, Pinecone, and FastAPI to provide accurate, context-aware answers using LLMs and vector search. (Azure AI Search setup is included, but the current implementation uses Pinecone for retrieval.)
+This project is an intelligent Retrieval-Augmented Generation (RAG) system for answering domain-specific questions from large documents (insurance, legal, HR, compliance, etc.). It leverages Azure OpenAI, Pinecone, and FastAPI to provide accurate, context-aware answers using LLMs and vector search.
 
 ## Architecture
 
 - **Document Ingestion:** Documents are uploaded to Azure Blob Storage.
-- **Indexing & Chunking:** Documents are chunked and embedded using Azure OpenAI, then indexed in Pinecone for fast vector retrieval. (Azure AI Search setup scripts are included, but not used in the main retrieval flow.)
+- **Indexing & Chunking:** Documents are chunked and embedded using Azure OpenAI, then indexed in Pinecone for fast vector retrieval.
 - **Vector Database:** Pinecone stores vectorized document chunks for semantic search.
 - **LLM Integration:** Azure OpenAI (GPT-4) is used for answer generation, grounded in retrieved document context.
 - **API Layer:** FastAPI serves as the backend, exposing endpoints for document Q&A.
