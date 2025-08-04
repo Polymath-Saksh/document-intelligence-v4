@@ -127,7 +127,7 @@ def get_top_chunks(question, top_k=20):
             break
     return merged
 
-app = FastAPI(title="Doc QA API - V4", description="API for document question answering using LLMs/embeddings.", root_path="/api/v1")
+app = FastAPI(title="Doc QA API - V4", description="API for document question answering using LLMs/embeddings.", root_path="/api/v2")
 security = HTTPBearer()
 BEARER_TOKEN = os.getenv("BEARER_TOKEN", "your-secure-token")
 
@@ -136,8 +136,15 @@ class QueryRequest(BaseModel):
     questions: List[str]
 
 
+
+class ResultItem(BaseModel):
+    decision: str
+    amount: str = ""
+    justification: str
+    clause: str
+
 class QueryResponse(BaseModel):
-    answers: List[str]
+    results: List[ResultItem]
 
 async def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)):
     if credentials.scheme != "Bearer" or credentials.credentials != BEARER_TOKEN:
@@ -234,6 +241,7 @@ async def run_query(request: QueryRequest, background_tasks: BackgroundTasks, _:
     top_k = int(os.getenv("RETRIEVAL_TOP_K", "40"))
     all_top_chunks = await loop.run_in_executor(None, lambda: [get_top_chunks(q, top_k) for q in request.questions])
 
+
     async def process_question_with_chunks(idx, question, parsed_query, top_chunks):
         async with semaphore:
             tq_start = time.time()
@@ -245,7 +253,11 @@ async def run_query(request: QueryRequest, background_tasks: BackgroundTasks, _:
             prompt_context_parts.append(f"PARSED QUERY FIELDS: {parsed_query}")
             prompt_context_parts.append("\n\nRELEVANT DOCUMENT CHUNKS:\n" + "\n".join(top_chunks))
             final_context = "\n".join(prompt_context_parts)
+            # Instruct the LLM to return a JSON object with the required fields
             prompt = (
+                f"You are an expert document analyst. Given the following question and context, answer strictly in the following JSON format: "
+                '{"decision": "approved/rejected/unknown", "amount": "<amount or empty if not applicable>", "justification": "<short explanation>", "clause": "<the most relevant clause or chunk>"}.\n'
+                "If the answer is not present, set decision to 'unknown', amount to '', justification to 'Not found in document.', and clause to ''.\n"
                 f"Question: {question}\nContext: {final_context}"
             )
             try:
@@ -256,15 +268,38 @@ async def run_query(request: QueryRequest, background_tasks: BackgroundTasks, _:
                 answer = f"Error generating answer: {e}"
             tq_end = time.time()
             logger.info(f"Total time for question {idx+1}: {tq_end-tq_start:.2f} seconds")
-            logger.info(f"Answer: {answer}")
-            return answer
+            logger.info(f"Raw LLM output: {answer}")
+            # Parse the LLM output as JSON, fallback to default if parsing fails
+            import json
+            try:
+                # Find the first JSON object in the output
+                json_start = answer.find('{')
+                json_end = answer.rfind('}') + 1
+                json_str = answer[json_start:json_end]
+                parsed = json.loads(json_str)
+                # Defensive: ensure all required fields are present
+                return ResultItem(
+                    decision=parsed.get("decision", "unknown"),
+                    amount=parsed.get("amount", ""),
+                    justification=parsed.get("justification", answer),
+                    clause=parsed.get("clause", "")
+                )
+            except Exception as e:
+                logger.error(f"Failed to parse LLM output as JSON: {e}")
+                return ResultItem(
+                    decision="unknown",
+                    amount="",
+                    justification=answer,
+                    clause=""
+                )
 
     # Run all questions in parallel and collect answers as strings, using top N chunks as context
-    answers = await asyncio.gather(*[
+
+    results = await asyncio.gather(*[
         process_question_with_chunks(idx, q, parsed_queries[idx], all_top_chunks[idx])
         for idx, q in enumerate(request.questions)
     ])
-    logger.info(f"Returning {len(answers)} answers to client")
+    logger.info(f"Returning {len(results)} structured results to client")
 
     # Cleanup: delete the upserted chunks from Pinecone in the background
     def cleanup_chunks(chunk_ids):
@@ -277,7 +312,7 @@ async def run_query(request: QueryRequest, background_tasks: BackgroundTasks, _:
 
     background_tasks.add_task(cleanup_chunks, chunk_ids)
 
-    return QueryResponse(answers=answers)
+    return QueryResponse(results=results)
 
 # Root route for homepage
 @app.get("/")
