@@ -1,6 +1,6 @@
 # LLM-Powered Intelligent Query–Retrieval System (RAG)
 
-<a href="https://www.python.org/"><img src="https://img.shields.io/badge/Python-3.12+-blue?logo=python&logoColor=white" alt="Python"></a>
+<a href="https://www.python.org/"><img src="https://img.shields.io/badge/Python-3.7--3.12-blue?logo=python&logoColor=white" alt="Python"></a>
 <a href="https://fastapi.tiangolo.com/"><img src="https://img.shields.io/badge/FastAPI-005571?logo=fastapi&logoColor=white" alt="FastAPI"></a>
 <a href="https://azure.microsoft.com/en-us/products/ai-services/openai-service/"><img src="https://img.shields.io/badge/Azure%20OpenAI-0078D4?logo=microsoftazure&logoColor=white" alt="Azure OpenAI"></a>
 <a href="https://www.pinecone.io/"><img src="https://img.shields.io/badge/Pinecone-45B8AC?logo=pinecone&logoColor=white" alt="Pinecone"></a>
