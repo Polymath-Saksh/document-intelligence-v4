@@ -33,13 +33,23 @@ index = pc.Index(host=PINECONE_INDEX_HOST)
 def chunk_text_overlap(text, chunk_size=1200, overlap=200):
     """
     Splits text into chunks with a specified overlap for better context.
+    Filters out empty and duplicate chunks.
     """
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=chunk_size,
         chunk_overlap=overlap,
         separators=["\n\n", "\n", ". ", "! ", "? ", " "]
     )
-    return splitter.split_text(text)
+    raw_chunks = splitter.split_text(text)
+    # Filter empty and duplicate chunks
+    seen = set()
+    filtered_chunks = []
+    for chunk in raw_chunks:
+        cleaned = chunk.strip()
+        if cleaned and cleaned not in seen:
+            filtered_chunks.append(cleaned)
+            seen.add(cleaned)
+    return filtered_chunks
 
 def upsert_chunks_to_pinecone(chunks, batch_size=100):
     """
@@ -67,12 +77,11 @@ def upsert_chunks_to_pinecone(chunks, batch_size=100):
 
 def get_top_chunks(question, top_k=20):
     """
-    Queries Pinecone for top-k similar chunks using dense vector search.
+    Hybrid retrieval: vector similarity + keyword search for improved recall.
     """
     query_embedding = get_embedding(question)
     if isinstance(query_embedding, list) and len(query_embedding) == 1:
         query_embedding = query_embedding[0]
-    
     # Dense vector search
     dense_results = index.query(
         namespace=PINECONE_NAMESPACE,
@@ -81,10 +90,40 @@ def get_top_chunks(question, top_k=20):
         include_metadata=True,
         include_values=False
     )
-    
-    merged_chunks = [match.get('metadata', {}).get('chunk_text', '') 
-                     for match in dense_results.get('matches', [])]
-    return merged_chunks
+    dense_chunks = [match.get('metadata', {}).get('chunk_text', '')
+                    for match in dense_results.get('matches', [])]
+    # Keyword search over all chunks in the index (brute force for now)
+    # For efficiency, you may want to cache all chunks or use a proper search engine
+    keyword_chunks = []
+    try:
+        # Fetch all chunk texts in the namespace (simulate with a large top_k)
+        all_results = index.query(
+            namespace=PINECONE_NAMESPACE,
+            vector=query_embedding,
+            top_k=1000,
+            include_metadata=True,
+            include_values=False
+        )
+        all_chunks = [match.get('metadata', {}).get('chunk_text', '')
+                      for match in all_results.get('matches', [])]
+        question_words = set(question.lower().split())
+        for chunk in all_chunks:
+            chunk_words = set(chunk.lower().split())
+            if question_words & chunk_words:
+                keyword_chunks.append(chunk)
+    except Exception as e:
+        logger.warning(f"Keyword search fallback failed: {e}")
+    # Merge and deduplicate, prioritizing dense_chunks
+    merged = []
+    seen = set()
+    for chunk in dense_chunks + keyword_chunks:
+        cleaned = chunk.strip()
+        if cleaned and cleaned not in seen:
+            merged.append(cleaned)
+            seen.add(cleaned)
+        if len(merged) >= top_k:
+            break
+    return merged
 
 app = FastAPI(title="Doc QA API - V4", description="API for document question answering using LLMs/embeddings.", root_path="/api/v1")
 security = HTTPBearer()
@@ -137,8 +176,11 @@ async def run_query(request: QueryRequest, background_tasks: BackgroundTasks, _:
     # Step 2: Chunk the text and upsert to Pinecone
     t2 = time.time()
     logger.info("Chunking extracted text with overlap")
-    chunks = chunk_text_overlap(text, chunk_size=500, overlap=100)
-    logger.info(f"Generated {len(chunks)} overlapping chunks from document")
+    # Allow chunk size/overlap to be tuned via env vars or defaults
+    chunk_size = int(os.getenv("CHUNK_SIZE", "500"))
+    overlap = int(os.getenv("CHUNK_OVERLAP", "100"))
+    chunks = chunk_text_overlap(text, chunk_size=chunk_size, overlap=overlap)
+    logger.info(f"Generated {len(chunks)} unique, non-empty overlapping chunks from document (chunk_size={chunk_size}, overlap={overlap})")
     t3 = time.time()
     logger.info(f"Chunking took {t3-t2:.2f} seconds")
 
@@ -149,7 +191,7 @@ async def run_query(request: QueryRequest, background_tasks: BackgroundTasks, _:
     logger.info(f"Pinecone upsert took {t5-t4:.2f} seconds")
     
     # Semaphore to limit concurrency for LLM calls
-    semaphore = asyncio.Semaphore(5)
+    semaphore = asyncio.Semaphore(10)
 
     async def process_question(idx, question):
         async with semaphore:
@@ -158,32 +200,43 @@ async def run_query(request: QueryRequest, background_tasks: BackgroundTasks, _:
             
             # Normal chunk retrieval and LLM for all questions.
             loop = asyncio.get_running_loop()
-            top_chunks = await loop.run_in_executor(None, get_top_chunks, question, 20)
-            logger.info(f"Selected top {len(top_chunks)} relevant chunks for question")
-            
+            top_k = int(os.getenv("RETRIEVAL_TOP_K", "40"))
+            top_chunks = await loop.run_in_executor(None, get_top_chunks, question, top_k)
+            logger.info(f"Selected top {len(top_chunks)} relevant chunks for question (top_k={top_k})")
+
             prompt_context_parts = []
             if all_contact_hint:
                 prompt_context_parts.append(f"CONTACTS AND ADDRESSES IN THE DOCUMENT: {all_contact_hint}")
-            
+
             prompt_context_parts.append("\n\nRELEVANT DOCUMENT CHUNKS:\n" + "\n".join(top_chunks))
-            
+
             final_context = "\n".join(prompt_context_parts)
-            
+
             prompt = (
                 f"Question: {question}\nContext: {final_context}"
             )
-            
+
             try:
                 answer = await loop.run_in_executor(None, ask_llm, prompt)
                 logger.info("LLM answer generated successfully")
             except Exception as e:
                 logger.error(f"Error generating answer: {e}")
                 answer = f"Error generating answer: {e}"
-            
+
+            # Answer validation: check if answer references the context
+            answer_valid = True
             if not answer or answer.strip() == "":
                 answer = "Not found in document."
+                answer_valid = False
+            else:
+                # Simple validation: check if any context chunk is in the answer
+                context_text = " ".join(top_chunks).lower()
+                if not any(word in context_text for word in answer.lower().split()):
+                    answer = "Not found in document."
+                    answer_valid = False
             tq_end = time.time()
             logger.info(f"Total time for question {idx+1}: {tq_end-tq_start:.2f} seconds")
+            logger.info(f"Answer quality for question {idx+1}: {'VALID' if answer_valid else 'NOT FOUND'} | Answer: {answer}")
             return answer
 
     # Run all questions in parallel
