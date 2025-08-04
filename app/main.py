@@ -9,7 +9,9 @@ import logging
 from dotenv import load_dotenv
 from app.file_utils import async_download_file, extract_text_from_file
 from app.openai_utils import ask_llm, get_embedding
+from app.clause_logic import match_clauses
 from app.contact_utils import is_contact_question, extract_contact_details
+from app.query_parser import parse_query
 from pinecone import Pinecone 
 from langchain.text_splitter import RecursiveCharacterTextSplitter 
 import gc
@@ -133,6 +135,7 @@ class QueryRequest(BaseModel):
     documents: str
     questions: List[str]
 
+
 class QueryResponse(BaseModel):
     answers: List[str]
 
@@ -193,56 +196,76 @@ async def run_query(request: QueryRequest, background_tasks: BackgroundTasks, _:
     # Semaphore to limit concurrency for LLM calls
     semaphore = asyncio.Semaphore(10)
 
-    async def process_question(idx, question):
+
+
+    async def process_question(idx, question, parsed_query, matched_clause):
         async with semaphore:
             tq_start = time.time()
             logger.info(f"Processing question {idx+1}/{len(request.questions)}: {question}")
-            
-            # Normal chunk retrieval and LLM for all questions.
-            loop = asyncio.get_running_loop()
-            top_k = int(os.getenv("RETRIEVAL_TOP_K", "40"))
-            top_chunks = await loop.run_in_executor(None, get_top_chunks, question, top_k)
-            logger.info(f"Selected top {len(top_chunks)} relevant chunks for question (top_k={top_k})")
 
+            # Use the matched clause as the main context for the LLM
+            loop = asyncio.get_running_loop()
             prompt_context_parts = []
             if all_contact_hint:
                 prompt_context_parts.append(f"CONTACTS AND ADDRESSES IN THE DOCUMENT: {all_contact_hint}")
-
-            prompt_context_parts.append("\n\nRELEVANT DOCUMENT CHUNKS:\n" + "\n".join(top_chunks))
-
+            prompt_context_parts.append(f"PARSED QUERY FIELDS: {parsed_query}")
+            prompt_context_parts.append(f"RELEVANT CLAUSE:\n{matched_clause}")
             final_context = "\n".join(prompt_context_parts)
-
             prompt = (
                 f"Question: {question}\nContext: {final_context}"
             )
-
             try:
                 answer = await loop.run_in_executor(None, ask_llm, prompt)
                 logger.info("LLM answer generated successfully")
             except Exception as e:
                 logger.error(f"Error generating answer: {e}")
                 answer = f"Error generating answer: {e}"
-
-            # Answer validation: check if answer references the context
-            answer_valid = True
-            if not answer or answer.strip() == "":
-                answer = "Not found in document."
-                answer_valid = False
-            else:
-                # Simple validation: check if any context chunk is in the answer
-                context_text = " ".join(top_chunks).lower()
-                if not any(word in context_text for word in answer.lower().split()):
-                    answer = "Not found in document."
-                    answer_valid = False
             tq_end = time.time()
             logger.info(f"Total time for question {idx+1}: {tq_end-tq_start:.2f} seconds")
-            logger.info(f"Answer quality for question {idx+1}: {'VALID' if answer_valid else 'NOT FOUND'} | Answer: {answer}")
+            logger.info(f"Answer: {answer}")
             return answer
 
-    # Run all questions in parallel
-    answers = await asyncio.gather(*[process_question(idx, q) for idx, q in enumerate(request.questions)])
+
+    # Parse all queries first
+    parsed_queries = [parse_query(q) for q in request.questions]
+
+    # Retrieve top chunks for all questions
+    loop = asyncio.get_running_loop()
+    top_k = int(os.getenv("RETRIEVAL_TOP_K", "40"))
+    all_top_chunks = await loop.run_in_executor(None, lambda: [get_top_chunks(q, top_k) for q in request.questions])
+
+    async def process_question_with_chunks(idx, question, parsed_query, top_chunks):
+        async with semaphore:
+            tq_start = time.time()
+            logger.info(f"Processing question {idx+1}/{len(request.questions)}: {question}")
+
+            prompt_context_parts = []
+            if all_contact_hint:
+                prompt_context_parts.append(f"CONTACTS AND ADDRESSES IN THE DOCUMENT: {all_contact_hint}")
+            prompt_context_parts.append(f"PARSED QUERY FIELDS: {parsed_query}")
+            prompt_context_parts.append("\n\nRELEVANT DOCUMENT CHUNKS:\n" + "\n".join(top_chunks))
+            final_context = "\n".join(prompt_context_parts)
+            prompt = (
+                f"Question: {question}\nContext: {final_context}"
+            )
+            try:
+                answer = await loop.run_in_executor(None, ask_llm, prompt)
+                logger.info("LLM answer generated successfully")
+            except Exception as e:
+                logger.error(f"Error generating answer: {e}")
+                answer = f"Error generating answer: {e}"
+            tq_end = time.time()
+            logger.info(f"Total time for question {idx+1}: {tq_end-tq_start:.2f} seconds")
+            logger.info(f"Answer: {answer}")
+            return answer
+
+    # Run all questions in parallel and collect answers as strings, using top N chunks as context
+    answers = await asyncio.gather(*[
+        process_question_with_chunks(idx, q, parsed_queries[idx], all_top_chunks[idx])
+        for idx, q in enumerate(request.questions)
+    ])
     logger.info(f"Returning {len(answers)} answers to client")
-    
+
     # Cleanup: delete the upserted chunks from Pinecone in the background
     def cleanup_chunks(chunk_ids):
         try:
@@ -253,7 +276,7 @@ async def run_query(request: QueryRequest, background_tasks: BackgroundTasks, _:
             logger.warning(f"Cleanup failed: {e}")
 
     background_tasks.add_task(cleanup_chunks, chunk_ids)
-    
+
     return QueryResponse(answers=answers)
 
 # Root route for homepage

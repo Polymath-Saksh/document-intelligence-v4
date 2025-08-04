@@ -1,3 +1,6 @@
+# For query parsing
+spacy>=3.0.0
+# After installing, run: python -m spacy download en_core_web_sm
 python-docx
 fastapi
 uvicorn
@@ -12,4 +15,3 @@ requests
 gunicorn
 pinecone
 langchain
-uvloop
