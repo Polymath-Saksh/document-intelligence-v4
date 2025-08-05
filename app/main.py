@@ -231,8 +231,12 @@ async def run_query(request: QueryRequest, background_tasks: BackgroundTasks, _:
 
     # Retrieve top chunks for all questions
     loop = asyncio.get_running_loop()
-    top_k = int(os.getenv("RETRIEVAL_TOP_K", "40"))
+    # Reduce top_k for faster retrieval
+    top_k = int(os.getenv("RETRIEVAL_TOP_K", "10"))
+    retrieval_start = time.time()
     all_top_chunks = await loop.run_in_executor(None, lambda: [get_top_chunks(q, top_k) for q in request.questions])
+    retrieval_end = time.time()
+    logger.info(f"Chunk retrieval for all questions took {retrieval_end - retrieval_start:.2f} seconds")
 
     async def process_question_with_chunks(idx, question, parsed_query, top_chunks):
         async with semaphore:
@@ -248,12 +252,19 @@ async def run_query(request: QueryRequest, background_tasks: BackgroundTasks, _:
             prompt = (
                 f"Question: {question}\nContext: {final_context}"
             )
+            llm_start = time.time()
             try:
-                answer = await loop.run_in_executor(None, ask_llm, prompt)
+                # Add a timeout for the LLM call (e.g., 30 seconds)
+                answer = await asyncio.wait_for(loop.run_in_executor(None, ask_llm, prompt), timeout=30)
                 logger.info("LLM answer generated successfully")
+            except asyncio.TimeoutError:
+                logger.error(f"LLM call timed out for question {idx+1}")
+                answer = "LLM call timed out. Please try again."
             except Exception as e:
                 logger.error(f"Error generating answer: {e}")
                 answer = f"Error generating answer: {e}"
+            llm_end = time.time()
+            logger.info(f"LLM call for question {idx+1} took {llm_end-llm_start:.2f} seconds")
             tq_end = time.time()
             logger.info(f"Total time for question {idx+1}: {tq_end-tq_start:.2f} seconds")
             logger.info(f"Answer: {answer}")
