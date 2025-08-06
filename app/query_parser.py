@@ -2,9 +2,15 @@ import re
 from typing import Dict, Any
 import spacy
 from spacy.matcher import Matcher
+import os
 
 # Load spaCy English model (make sure to install: python -m spacy download en_core_web_sm)
-nlp = spacy.load("en_core_web_sm")
+try:
+    nlp = spacy.load("en_core_web_sm")
+except Exception as e:
+    print(f"Error loading spaCy model: {e}. Attempting to download...")
+    os.system("python -m spacy download en_core_web_sm")
+    nlp = spacy.load("en_core_web_sm")
 
 # Patterns for extracting age, procedure, location, and policy duration
 AGE_PATTERN = re.compile(r"(\d{1,3})\s*[-]?(year|yr|y|yo|years|old|m|male|f|female)?", re.IGNORECASE)
