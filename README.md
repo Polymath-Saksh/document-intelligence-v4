@@ -87,7 +87,9 @@ Response:
 
 ## Contributors
 
-- [**Polymath-Saksh**](https://github.com/Polymath-Saksh) (Project Author & Maintainer)
+- [**Saksham Kumar**](https://github.com/Polymath-Saksh) (Project Author & Maintainer)
+- [**Aloukik Joshi**](https://github.com/aloukikjoshi) (Project Collaborator)
+- [**Nihal Pandey**](https://github.com/NihalPandey5060) (Project Collaborator)
 
 ## License
 
